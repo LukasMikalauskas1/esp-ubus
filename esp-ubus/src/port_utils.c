@@ -1,14 +1,19 @@
 #include "port_utils.h"
 
-int send_action(char *port_name, int pin, char *action, char **res)
+int send_action(char *port_name, char *action, char **res)
 {
+
         int result;
         int size = strlen(action);
         unsigned int timeout = 2000;
 
-        char *buf = malloc(size * 2);
+        struct sp_port *port = NULL;
+        port = open_port(port_name);
 
-        struct sp_port *port = open_port(port_name);
+        if (port == NULL)
+        {
+                return SP_ERR_MEM;
+        }
 
         result = sp_blocking_write(port, action, size, timeout);
 
@@ -17,10 +22,12 @@ int send_action(char *port_name, int pin, char *action, char **res)
                 return result;
         }
 
+        char *buf = malloc(size * 2);
         result = sp_blocking_read(port, buf, size * 2, timeout);
 
         if (result < 0)
         {
+                free(buf);
                 return result;
         }
 
@@ -43,7 +50,6 @@ struct sp_port *open_port(char *port_name)
         sp_set_parity(port, SP_PARITY_NONE);
         sp_set_stopbits(port, 1);
         sp_set_flowcontrol(port, SP_FLOWCONTROL_NONE);
-
         return port;
 }
 
@@ -70,6 +76,12 @@ int get_port_info(struct Devices *devices)
 
                         int usb_vid, usb_pid;
                         sp_get_port_usb_vid_pid(port, &usb_vid, &usb_pid);
+
+                        // default vid, pid for CP210x devices
+                        if (usb_vid != 0x10C4 || usb_pid != 0xEA60)
+                        {
+                                continue;
+                        }
 
                         char vid[20];
                         char pid[20];

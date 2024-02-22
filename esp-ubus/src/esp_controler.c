@@ -1,5 +1,3 @@
-#include <signal.h>
-
 #include "ubus_utils.h"
 
 int main(void)

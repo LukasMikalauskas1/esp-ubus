@@ -1,5 +1,4 @@
 #include "ubus_utils.h"
-#include <unistd.h>
 
 struct ubus_context *ctx;
 
@@ -27,16 +26,10 @@ static int devices(struct ubus_context *ctx, struct ubus_object *obj,
                    struct ubus_request_data *req, const char *method,
                    struct blob_attr *msg)
 {
-        ignore_signals();
         struct blob_buf buffer = {};
 
         struct Devices devices[10] = {0};
         int counter = get_port_info(devices);
-
-        if (counter <= 0)
-        {
-                return UBUS_STATUS_NO_DATA;
-        }
 
         blob_buf_init(&buffer, 0);
 
@@ -56,7 +49,7 @@ static int devices(struct ubus_context *ctx, struct ubus_object *obj,
 
         ubus_send_reply(ctx, req, buffer.head);
         blob_buf_free(&buffer);
-        handle_signals();
+
         return 0;
 }
 
@@ -65,11 +58,10 @@ static int esp_on(struct ubus_context *ctx, struct ubus_object *obj,
                   struct blob_attr *msg)
 {
         struct blob_attr *table[PORT_MAX];
-        struct blob_buf buffer = {};
 
         blobmsg_parse(esp_policy, PORT_MAX, table, blob_data(msg), blob_len(msg));
 
-        if (!table[PORT_VALUE] || !table[PORT_VALUE])
+        if (!table[PORT_VALUE] || !table[PIN_VALUE])
         {
                 return UBUS_STATUS_INVALID_ARGUMENT;
         }
@@ -80,7 +72,7 @@ static int esp_on(struct ubus_context *ctx, struct ubus_object *obj,
         char action[50];
         sprintf(action, "{\"action\": \"on\", \"pin\": %d}", pin);
 
-        return esp_send_action(ctx, req, port, pin, action);
+        return esp_send_action(ctx, req, port, action);
 }
 
 static int esp_off(struct ubus_context *ctx, struct ubus_object *obj,
@@ -88,11 +80,10 @@ static int esp_off(struct ubus_context *ctx, struct ubus_object *obj,
                    struct blob_attr *msg)
 {
         struct blob_attr *table[PORT_MAX];
-        struct blob_buf buffer = {};
 
         blobmsg_parse(esp_policy, PORT_MAX, table, blob_data(msg), blob_len(msg));
 
-        if (!table[PORT_VALUE] || !table[PORT_VALUE])
+        if (!table[PORT_VALUE] || !table[PIN_VALUE])
         {
                 return UBUS_STATUS_INVALID_ARGUMENT;
         }
@@ -103,22 +94,20 @@ static int esp_off(struct ubus_context *ctx, struct ubus_object *obj,
         char action[50];
         sprintf(action, "{\"action\": \"off\", \"pin\": %d}", pin);
 
-        return esp_send_action(ctx, req, port, pin, action);
+        return esp_send_action(ctx, req, port, action);
 }
 
 static int esp_send_action(struct ubus_context *ctx, struct ubus_request_data *req,
-                           char *port, int pin, char *action)
+                           char *port, char *action)
 {
-        ignore_signals();
-
         struct blob_buf buffer = {};
-
         char *res = NULL;
 
-        int ret = send_action(port, pin, action, &res);
+        int ret = send_action(port, action, &res);
 
         if (ret != SP_OK)
         {
+                free(res);
                 return UBUS_STATUS_INVALID_ARGUMENT;
         }
 
@@ -128,48 +117,27 @@ static int esp_send_action(struct ubus_context *ctx, struct ubus_request_data *r
         blob_buf_free(&buffer);
         free(res);
 
-        handle_signals();
         return ret;
 }
 
 void disconnect_ubus()
 {
-        ubus_free(ctx);
         uloop_done();
+        ubus_free(ctx);
 }
-
-//----------Singal_handling----------
-void signal_handler(int signal)
-{
-        disconnect_ubus();
-        exit(EXIT_SUCCESS);
-}
-
-void handle_signals()
-{
-        signal(SIGTERM, signal_handler);
-        signal(SIGTSTP, signal_handler);
-        signal(SIGINT, signal_handler);
-}
-
-void ignore_signals()
-{
-        signal(SIGTERM, SIG_IGN);
-        signal(SIGTSTP, SIG_IGN);
-        signal(SIGINT, SIG_IGN);
-}
-//-----------------------------------
 
 int start_controler()
 {
-        ignore_signals();
         uloop_init();
+
         ctx = ubus_connect(NULL);
         if (!ctx)
         {
                 fprintf(stderr, "Failed to connect to ubus\n");
                 return -1;
         }
+
+        ubus_add_uloop(ctx);
 
         if (ubus_add_object(ctx, &esp_object))
         {
@@ -178,9 +146,6 @@ int start_controler()
                 return -1;
         }
 
-        handle_signals();
-
-        ubus_add_uloop(ctx);
         uloop_run();
 
         disconnect_ubus();
